@@ -6,10 +6,10 @@ Consent bar toolkit for AI agents: strict opt-in by default, free, no runtime de
 
 - Safe default: essential only, everything else off.
 - Vendor-neutral and standalone.
-- Content/script gating using:
-  - `type="text/plain" data-consent-category="..."`
-  - `data-consent-src="..."`
-  - `data-consent-category="..."`
+- Safe markup rules (strict):
+  - `data-consent-category` tags must use `data-consent-src` and must not keep a normal `src`.
+  - `data-consent-src` tags must always include a valid `data-consent-category`.
+  - Inline `script` tags for consent gating must set `type="text/plain"` when no `data-consent-src` is present.
 - Persistent, versioned consent with expiry.
 - Global Privacy Control (GPC) awareness.
 - Manage-preferences button API and DOM update events.
@@ -61,7 +61,9 @@ Details include `detail.grants`, `detail.version`, and `detail.reason`.
 
 `audit <html-or-dir>` checks:
 - loader marker before consent-gated nodes,
-- common trackers without category/source gating,
+- any consent-gated script/iframe with an ordinary `src` fails (must use `data-consent-src`),
+- categoryless `data-consent-src` tags,
+- inline scripted content with `data-consent-category` that is not `type="text/plain"`,
 - presence of policy link,
 - presence of accept/reject/manage controls.
 

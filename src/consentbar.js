@@ -5,28 +5,40 @@ import {
   isGpcEnabled
 } from './policy.js';
 
-const GATED_SELECTOR = 'script[data-consent-category], iframe[data-consent-category], script[type="text/plain"]';
+const GATED_SELECTOR =
+  'script[data-consent-category], iframe[data-consent-category], script[data-consent-src], iframe[data-consent-src]';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const DEFAULT_OPTIONS = {
-  config: {}
-};
+function resolveRuntimeContext(context = {}, providedWindow, providedDocument) {
+  const windowObj = context.window || providedWindow || (typeof window !== 'undefined' ? window : null);
+  const documentObj = context.document || providedDocument || (windowObj ? windowObj.document : null);
+  const navigatorObj = context.navigator || (windowObj?.navigator || documentObj?.defaultView?.navigator || null);
 
-function isBrowserContext(context = {}) {
-  return !!(context.document || (typeof document !== 'undefined' && document?.querySelector));
+  return {
+    ...context,
+    window: windowObj,
+    document: documentObj,
+    navigator: navigatorObj
+  };
 }
 
-function makeStorage(config, context) {
-  if (context?.storage) {
-    return context.storage;
+function isBrowserContext(context = {}) {
+  const resolved = resolveRuntimeContext(context, context?.window, context?.document);
+  return !!(resolved.document || (resolved.window && resolved.window.document));
+}
+
+function makeStorage(contextStorage, windowObj) {
+  if (contextStorage) {
+    return contextStorage;
   }
 
+  const target = windowObj || null;
   try {
-    if (typeof localStorage !== 'undefined') {
+    if (target && target.localStorage) {
       return {
-        getItem: (k) => localStorage.getItem(k),
-        setItem: (k, v) => localStorage.setItem(k, v),
-        removeItem: (k) => localStorage.removeItem(k)
+        getItem: (k) => target.localStorage.getItem(k),
+        setItem: (k, v) => target.localStorage.setItem(k, v),
+        removeItem: (k) => target.localStorage.removeItem(k)
       };
     }
   } catch (_error) {
@@ -42,11 +54,11 @@ function makeStorage(config, context) {
     removeItem: (k) => {
       delete memory[k];
     }
-};
+  };
 }
 
-function enforceGpcGrants(grants, context) {
-  if (!isGpcEnabled(context)) {
+function enforceGpcGrants(grants, environment) {
+  if (!isGpcEnabled(environment)) {
     return grants;
   }
 
@@ -106,11 +118,11 @@ function cloneIFrameNode(node) {
 
 class ConsentBarManager {
   constructor(config = {}, context = {}) {
-    this.context = context;
+    this.context = resolveRuntimeContext(context, context.window, context.document);
     this.config = normalizeConfig(config);
-    this.document = context.document || (typeof document !== 'undefined' ? document : null);
-    this.window = context.window || (typeof window !== 'undefined' ? window : null);
-    this.storage = makeStorage(this.config.storage, context);
+    this.document = this.context.document;
+    this.window = this.context.window;
+    this.storage = makeStorage(this.context.storage, this.window);
     this.key = this.config.storage.key;
     this.state = this.loadState();
     this.initialized = false;
@@ -155,10 +167,15 @@ class ConsentBarManager {
     return Date.now() + this.config.storage.expiryDays * DAY_MS;
   }
 
+  isGpc() {
+    return isGpcEnabled(this.context);
+  }
+
   broadcast(reason) {
     if (!this.window || !this.window.CustomEvent) {
       return;
     }
+
     const detail = {
       reason,
       version: this.state.version,
@@ -177,9 +194,10 @@ class ConsentBarManager {
   }
 
   isAllowed(category) {
-    if (isGpcEnabled(this.context)) {
+    if (this.isGpc()) {
       return category === 'essential';
     }
+
     return allowCategory(category, this.state);
   }
 
@@ -207,10 +225,11 @@ class ConsentBarManager {
 
     base.grants = enforceGpcGrants(normalizedGrants, this.context);
     base.source = overrides.source || 'user';
-    this.state = base;
-    if (isGpcEnabled(this.context)) {
+    if (this.isGpc()) {
       base.source = 'gpc';
     }
+
+    this.state = base;
     this.saveState(this.state);
   }
 
@@ -249,7 +268,7 @@ class ConsentBarManager {
   }
 
   setCategoryConsent(category, value) {
-    if (isGpcEnabled(this.context)) {
+    if (this.isGpc()) {
       return;
     }
 
@@ -342,7 +361,10 @@ class ConsentBarManager {
     node.dataset.consentBlocked = '1';
     node.setAttribute('inert', '');
     node.setAttribute('aria-hidden', 'true');
-    if (node instanceof this.document.defaultView.HTMLScriptElement) {
+    if (
+      this.document?.defaultView?.HTMLScriptElement &&
+      node instanceof this.document.defaultView.HTMLScriptElement
+    ) {
       node.setAttribute('type', 'text/plain');
     }
   }

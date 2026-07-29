@@ -6,15 +6,20 @@ import { validateConfig } from './validate.js';
 const DEFAULT_TRACKER_PATTERNS = defaultConfigValues().trackerPatterns;
 
 const GATED_TAG_REGEX = /<(script|iframe)\b[^>]*\bdata-consent-(?:src|category)\s*=\s*["'].*?["'][^>]*>/gi;
+const SRC_TAG_REGEX = /<(script|iframe)\b[^>]*\s+src\s*=\s*(["'])(.*?)\2[^>]*>/gi;
 const DATA_CATEGORY_REGEX = /data-consent-category\s*=\s*(["'])(.*?)\1/i;
 const DATA_SRC_REGEX = /data-consent-src\s*=\s*(["'])(.*?)\1/i;
-const SRC_REGEX = /\bsrc\s*=\s*(["'])(.*?)\1/i;
-const SRC_TAG_REGEX = /<(script|iframe)\b[^>]*\bsrc\s*=\s*(["'])(.*?)\2[^>]*>/gi;
+const SRC_REGEX = /(?:^|\s)src\s*=\s*(["'])(.*?)\1/i;
+const TYPE_REGEX = /(?:^|\s)type\s*=\s*(["'])(.*?)\1/i;
 const MANAGE_REJECT_ACCEPT_REGEX = /data-consent-(manage-button|reject-all|accept-all)\b/i;
 const LOADER_REGEX = /<script\b[^>]*\bdata-consentbar-loader\b[^>]*>|<script\b[^>]*\bconsentbar\.(?:js|mjs)/i;
 
 function isHtmlFile(filePath) {
   return filePath.toLowerCase().endsWith('.html') || filePath.toLowerCase().endsWith('.htm');
+}
+
+function isTrackedUrl(value, trackerPatterns) {
+  return trackerPatterns.some((pattern) => value.includes(pattern));
 }
 
 async function listHtmlFiles(target) {
@@ -37,20 +42,24 @@ function firstIndexOfLoader(content) {
   return match ? match.index : -1;
 }
 
-function inspectTag(content, match, tags, config, loaderIndex) {
+function inspectGatedTag(match, tags, loaderIndex) {
   const tag = match[0];
   const index = match.index;
+  const tagName = match[1].toLowerCase();
+
   const categoryMatch = DATA_CATEGORY_REGEX.exec(tag);
-  const srcMatch = DATA_SRC_REGEX.exec(tag);
-  const attrSrc = SRC_REGEX.exec(tag);
-  const src = (srcMatch?.[2] || attrSrc?.[2] || '').toLowerCase();
-  const category = categoryMatch?.[2] || 'essential';
+  const consentSrcMatch = DATA_SRC_REGEX.exec(tag);
+  const srcMatch = SRC_REGEX.exec(tag);
+  const regularSrc = (srcMatch?.[2] || '').toLowerCase();
+  const consentSrc = (consentSrcMatch?.[2] || '').toLowerCase();
+  const typeMatch = TYPE_REGEX.exec(tag);
+  const scriptType = typeMatch ? typeMatch[2].toLowerCase() : '';
+
   const hasDataCategory = DATA_CATEGORY_REGEX.test(tag);
   const hasDataConsentSrc = DATA_SRC_REGEX.test(tag);
-  const isTracker = (config.trackerPatterns || []).some((pattern) => src.includes(pattern));
-  const canonical = canonicalCategories();
+  const category = categoryMatch?.[2] || 'essential';
 
-  if (hasDataCategory && !canonical.includes(category)) {
+  if (hasDataCategory && !canonicalCategories().includes(category)) {
     tags.errors.push(`invalid-consent-category:${category}`);
   }
 
@@ -58,15 +67,47 @@ function inspectTag(content, match, tags, config, loaderIndex) {
     tags.errors.push('loader-order');
   }
 
-  if (hasDataCategory || hasDataConsentSrc) {
-    if (category === 'statistics' && hasDataCategory && !hasDataConsentSrc && !src) {
-      tags.warnings.push('statistics-tag-without-src');
-    }
+  if ((hasDataCategory || hasDataConsentSrc) && regularSrc) {
+    tags.errors.push(`gated-tag-must-use-data-consent-src:${regularSrc}`);
+  }
+
+  if (!hasDataCategory && hasDataConsentSrc) {
+    tags.errors.push(`missing-data-consent-category:${consentSrc}`);
+  }
+
+  if (tagName === 'script' && hasDataCategory && !hasDataConsentSrc && scriptType !== 'text/plain') {
+    tags.errors.push('inline-gated-script-must-be-text/plain');
+  }
+
+}
+
+function inspectSrcTag(match, tags, trackerPatterns) {
+  const tag = match[0];
+  const src = (match[3] || '').toLowerCase();
+  if (!src) {
     return;
   }
 
-  if (isTracker) {
+  const isTracker = isTrackedUrl(src, trackerPatterns);
+  if (!isTracker) {
+    return;
+  }
+
+  const hasDataCategory = DATA_CATEGORY_REGEX.test(tag);
+  const hasDataConsentSrc = DATA_SRC_REGEX.test(tag);
+  const hasGatedAttr = hasDataCategory || hasDataConsentSrc;
+
+  if (!hasGatedAttr) {
     tags.errors.push(`ungated-tracker:${src}`);
+    return;
+  }
+
+  if (!hasDataConsentSrc) {
+    tags.errors.push(`gated-tag-must-use-data-consent-src:${src}`);
+  }
+
+  if (!hasDataCategory) {
+    tags.errors.push(`missing-data-consent-category:${src}`);
   }
 }
 
@@ -101,35 +142,21 @@ export async function auditHtmlContent(content, cfg = {}) {
 
   const tags = { errors: [], warnings: [] };
 
-  GATED_TAG_REGEX.lastIndex = 0;
   let match;
+  GATED_TAG_REGEX.lastIndex = 0;
   while ((match = GATED_TAG_REGEX.exec(content)) !== null) {
-    inspectTag(content, match, tags, config, loaderIndex);
+    inspectGatedTag(match, tags, loaderIndex);
   }
 
   SRC_TAG_REGEX.lastIndex = 0;
   while ((match = SRC_TAG_REGEX.exec(content)) !== null) {
-    const tag = match[0];
-    const src = (match[3] || '').toLowerCase();
-
-    if (!src) {
-      continue;
-    }
-
-    const hasCategory = DATA_CATEGORY_REGEX.test(tag);
-    const hasExplicit = DATA_SRC_REGEX.test(tag);
-    const tracked = normalizedPatterns.some((pattern) => src.includes(pattern));
-
-    if (tracked && !(hasCategory || hasExplicit)) {
-      tags.errors.push(`ungated-tracker:${src}`);
-    }
+    inspectSrcTag(match, tags, normalizedPatterns);
   }
 
-  const uniq = (value) => Array.from(new Set(value));
+  const uniq = (values) => Array.from(new Set(values));
   for (const item of uniq(tags.errors)) {
     errors.push(item);
   }
-
   for (const item of uniq(tags.warnings)) {
     warnings.push(item);
   }

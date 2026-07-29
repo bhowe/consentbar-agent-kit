@@ -28,6 +28,66 @@ test('audit passes on positive fixture', () => {
   assert.equal(result.stdout.trim(), '');
 });
 
+test('audit passes on tracker fixture with data-consent-src', () => {
+  const result = spawnSync(process.execPath, [cli, 'audit', resolve(process.cwd(), 'tests/fixtures/good-tracker-consent-src.html')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout.trim(), '');
+});
+
+test('audit fails on tracker using ordinary src even with category', () => {
+  const result = spawnSync(process.execPath, [cli, 'audit', resolve(process.cwd(), 'tests/fixtures/bad-tracker-category-src.html')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /gated-tag-must-use-data-consent-src/);
+});
+
+test('audit fails on non-tracker ordinary src kept in gated script', () => {
+  const result = spawnSync(process.execPath, [cli, 'audit', resolve(process.cwd(), 'tests/fixtures/bad-gated-nontracker-ordinary-src.html')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /gated-tag-must-use-data-consent-src/);
+});
+
+test('audit fails on categoryless consent source', () => {
+  const result = spawnSync(process.execPath, [cli, 'audit', resolve(process.cwd(), 'tests/fixtures/bad-categoryless-consent-src.html')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /missing-data-consent-category/);
+});
+
+test('audit fails on unsafe inline gated script', () => {
+  const result = spawnSync(process.execPath, [cli, 'audit', resolve(process.cwd(), 'tests/fixtures/bad-inline-gated-script.html')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /inline-gated-script-must-be-text\/plain/);
+});
+
+test('audit passes on safe inline text/plain gated script', () => {
+  const result = spawnSync(process.execPath, [cli, 'audit', resolve(process.cwd(), 'tests/fixtures/good-inline-type-text-plain.html')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout.trim(), '');
+});
+
 test('audit fails on missing policy and controls', () => {
   const result = spawnSync(process.execPath, [cli, 'audit', resolve(process.cwd(), 'tests/fixtures/bad.html')], {
     encoding: 'utf8',
