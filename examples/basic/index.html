@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Consentbar Agent Kit Demo</title>
+  <script src="../../dist/consentbar.js" data-consentbar-loader></script>
+  <script>
+    ConsentBar.init({
+      version: '1',
+      policyVersion: '2026-07-29',
+      policyUrl: '/privacy',
+      categories: ['essential', 'statistics', 'marketing', 'preferences'],
+      defaultConsent: {
+        essential: true,
+        statistics: false,
+        marketing: false,
+        preferences: false
+      },
+      storage: {
+        key: 'agent-consent-state',
+        version: '1',
+        expiryDays: 365
+      },
+      trackerPatterns: [
+        'google-analytics.com',
+        'googletagmanager.com',
+        'doubleclick.net',
+        'facebook.net',
+        'facebook.com/tr',
+        'adservice.google.com',
+        'analytics.js'
+      ]
+    });
+  </script>
+</head>
+<body>
+  <main style="font-family:system-ui, -apple-system, Segoe UI, sans-serif; margin:1rem;">
+    <h1>Consentbar Agent Kit</h1>
+    <p>
+      <a href="/privacy" data-consent-policy-link>Privacy policy</a>
+    </p>
+
+    <button type="button" data-consent-accept-all>Accept all</button>
+    <button type="button" data-consent-reject-all>Reject non-essential</button>
+    <button type="button" data-consent-manage-button>Manage preferences</button>
+
+    <h2>Gated analytics</h2>
+    <script data-consent-category="statistics" data-consent-src="https://www.googletagmanager.com/gtag/js?id=DEMO"></script>
+
+    <h2>Gated marketing frame</h2>
+    <iframe
+      data-consent-category="marketing"
+      data-consent-src="https://www.youtube.com/embed/abc123"
+      width="560"
+      height="315"
+      title="Demo video"
+      frameborder="0"
+      loading="lazy"
+    ></iframe>
+  </main>
+</body>
+</html>

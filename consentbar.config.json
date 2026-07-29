@@ -1,0 +1,35 @@
+{
+  "version": "1",
+  "policyVersion": "2026-07-29",
+  "policyUrl": "/privacy",
+  "categories": [
+    "essential",
+    "statistics",
+    "marketing",
+    "preferences"
+  ],
+  "defaultConsent": {
+    "essential": true,
+    "statistics": false,
+    "marketing": false,
+    "preferences": false
+  },
+  "storage": {
+    "key": "agent-consent-state",
+    "version": "1",
+    "expiryDays": 365
+  },
+  "trackerPatterns": [
+    "google-analytics.com",
+    "googletagmanager.com",
+    "doubleclick.net",
+    "facebook.net",
+    "facebook.com/tr",
+    "adservice.google.com",
+    "analytics.js"
+  ],
+  "ui": {
+    "manageButtonLabel": "Manage preferences",
+    "injectManageButton": true
+  }
+}

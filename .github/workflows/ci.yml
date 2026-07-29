@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Validate example config
+        run: node ./bin/consentbar.js validate consentbar.config.json
+      - name: Audit example
+        run: node ./bin/consentbar.js audit examples/basic/index.html

@@ -1,0 +1,28 @@
+{
+  "name": "consentbar-agent-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Platform-neutral consent toolkit for AI agents with strict opt-in defaults and script/content gating.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tests/**/*.test.mjs",
+    "validate": "node ./bin/consentbar.js validate",
+    "audit": "node ./bin/consentbar.js audit examples/basic/index.html",
+    "lint:cli": "node ./bin/consentbar.js validate consentbar.config.json"
+  },
+  "bin": {
+    "consentbar": "./bin/consentbar.js"
+  },
+  "files": [
+    "dist/consentbar.js",
+    "src/**/*",
+    "examples/**/*",
+    "README.md",
+    "LICENSE",
+    "src/schema/consent-config.schema.json"
+  ]
+}
