@@ -21,6 +21,13 @@ node ./bin/consentbar.js init
 node ./bin/consentbar.js validate consentbar.config.json
 node ./bin/consentbar.js audit examples/basic/index.html
 ```
+or via npm scripts:
+
+```bash
+npm run validate
+npm run audit
+npm run build
+```
 
 Open `examples/basic/index.html` with a local server and interact with the buttons.
 
@@ -48,7 +55,7 @@ Load `dist/consentbar.js` and initialize with:
 - `window` event `consentchange`
 - `window` event `consent:updated`
 
-Details include `detail.grants`, `detail.state`, and `detail.reason`.
+Details include `detail.grants`, `detail.version`, and `detail.reason`.
 
 ## Audit CLI
 

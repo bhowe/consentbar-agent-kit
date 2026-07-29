@@ -22,12 +22,18 @@ export function validateConfig(config) {
   if (!Array.isArray(cfg.categories)) {
     errors.push('categories must be an array');
   } else {
+    const areStrings = cfg.categories.every((value) => typeof value === 'string');
+    if (!areStrings) {
+      errors.push('categories must contain only strings');
+    }
+
     const missing = expectedCategories.filter((c) => !cfg.categories.includes(c));
     const extra = cfg.categories.filter((c) => !expectedCategories.includes(c));
+    const unique = new Set(cfg.categories);
     if (cfg.categories.length !== expectedCategories.length || missing.length > 0 || extra.length > 0) {
       errors.push('categories must be exactly essential,statistics,marketing,preferences');
     }
-    if (cfg.categories.some((value) => !cfg.categories.includes(value))) {
+    if (unique.size !== cfg.categories.length) {
       errors.push('categories must be unique and each category string');
     }
   }

@@ -1,7 +1,8 @@
 import {
   normalizeConfig,
   normalizeState,
-  allowCategory
+  allowCategory,
+  isGpcEnabled
 } from './policy.js';
 
 const GATED_SELECTOR = 'script[data-consent-category], iframe[data-consent-category], script[type="text/plain"]';
@@ -41,6 +42,19 @@ function makeStorage(config, context) {
     removeItem: (k) => {
       delete memory[k];
     }
+};
+}
+
+function enforceGpcGrants(grants, context) {
+  if (!isGpcEnabled(context)) {
+    return grants;
+  }
+
+  return {
+    essential: true,
+    statistics: false,
+    marketing: false,
+    preferences: false
   };
 }
 
@@ -163,6 +177,9 @@ class ConsentBarManager {
   }
 
   isAllowed(category) {
+    if (isGpcEnabled(this.context)) {
+      return category === 'essential';
+    }
     return allowCategory(category, this.state);
   }
 
@@ -181,14 +198,19 @@ class ConsentBarManager {
       now
     );
 
-    base.grants = {
+    const normalizedGrants = {
       essential: true,
-      statistics: Boolean(overrides.grants?.statistics ?? this.state.grants.statistics),
-      marketing: Boolean(overrides.grants?.marketing ?? this.state.grants.marketing),
-      preferences: Boolean(overrides.grants?.preferences ?? this.state.grants.preferences)
+      statistics: Boolean(overrides.grants?.statistics ?? base.grants.statistics),
+      marketing: Boolean(overrides.grants?.marketing ?? base.grants.marketing),
+      preferences: Boolean(overrides.grants?.preferences ?? base.grants.preferences)
     };
+
+    base.grants = enforceGpcGrants(normalizedGrants, this.context);
     base.source = overrides.source || 'user';
     this.state = base;
+    if (isGpcEnabled(this.context)) {
+      base.source = 'gpc';
+    }
     this.saveState(this.state);
   }
 
@@ -227,6 +249,10 @@ class ConsentBarManager {
   }
 
   setCategoryConsent(category, value) {
+    if (isGpcEnabled(this.context)) {
+      return;
+    }
+
     if (!this.config.categories.includes(category)) {
       return;
     }

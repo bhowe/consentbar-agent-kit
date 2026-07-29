@@ -1,15 +1,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { canonicalCategories, defaultConfigValues, normalizeConfig } from './policy.js';
 import { validateConfig } from './validate.js';
 
 const DEFAULT_TRACKER_PATTERNS = defaultConfigValues().trackerPatterns;
 
-const GATED_TAG_REGEX = /<(script|iframe)\b[^>]*\bdata-consent-(?:src|category)\s*=\s*[\"'][^\"']+[\"'][^>]*>/gi;
+const GATED_TAG_REGEX = /<(script|iframe)\b[^>]*\bdata-consent-(?:src|category)\s*=\s*["'].*?["'][^>]*>/gi;
 const DATA_CATEGORY_REGEX = /data-consent-category\s*=\s*(["'])(.*?)\1/i;
 const DATA_SRC_REGEX = /data-consent-src\s*=\s*(["'])(.*?)\1/i;
 const SRC_REGEX = /\bsrc\s*=\s*(["'])(.*?)\1/i;
+const SRC_TAG_REGEX = /<(script|iframe)\b[^>]*\bsrc\s*=\s*(["'])(.*?)\2[^>]*>/gi;
 const MANAGE_REJECT_ACCEPT_REGEX = /data-consent-(manage-button|reject-all|accept-all)\b/i;
 const LOADER_REGEX = /<script\b[^>]*\bdata-consentbar-loader\b[^>]*>|<script\b[^>]*\bconsentbar\.(?:js|mjs)/i;
 
@@ -37,33 +37,28 @@ function firstIndexOfLoader(content) {
   return match ? match.index : -1;
 }
 
-function inspectTag(content, match, tags, config) {
+function inspectTag(content, match, tags, config, loaderIndex) {
   const tag = match[0];
   const index = match.index;
   const categoryMatch = DATA_CATEGORY_REGEX.exec(tag);
   const srcMatch = DATA_SRC_REGEX.exec(tag);
   const attrSrc = SRC_REGEX.exec(tag);
-  const src = srcMatch?.[2] || attrSrc?.[2] || '';
+  const src = (srcMatch?.[2] || attrSrc?.[2] || '').toLowerCase();
   const category = categoryMatch?.[2] || 'essential';
   const hasDataCategory = DATA_CATEGORY_REGEX.test(tag);
   const hasDataConsentSrc = DATA_SRC_REGEX.test(tag);
-  const matchPatterns = (text, patterns) => {
-    return patterns.some((pattern) => text.includes(pattern));
-  };
-
+  const isTracker = (config.trackerPatterns || []).some((pattern) => src.includes(pattern));
   const canonical = canonicalCategories();
-  const invalidCategory = hasDataCategory && !canonical.includes(category);
-  if (invalidCategory) {
+
+  if (hasDataCategory && !canonical.includes(category)) {
     tags.errors.push(`invalid-consent-category:${category}`);
   }
 
-  const isTracker = matchPatterns(src, config.trackerPatterns);
-  const loaderIndex = firstIndexOfLoader(content);
+  if (loaderIndex >= 0 && index < loaderIndex) {
+    tags.errors.push('loader-order');
+  }
 
   if (hasDataCategory || hasDataConsentSrc) {
-    if (index < loaderIndex) {
-      tags.errors.push('loader-order');
-    }
     if (category === 'statistics' && hasDataCategory && !hasDataConsentSrc && !src) {
       tags.warnings.push('statistics-tag-without-src');
     }
@@ -77,6 +72,9 @@ function inspectTag(content, match, tags, config) {
 
 export async function auditHtmlContent(content, cfg = {}) {
   const config = normalizeConfig(cfg);
+  const normalizedPatterns = (config.trackerPatterns || DEFAULT_TRACKER_PATTERNS).map((pattern) => String(pattern).toLowerCase());
+  config.trackerPatterns = normalizedPatterns;
+
   const errors = [];
   const warnings = [];
 
@@ -103,59 +101,42 @@ export async function auditHtmlContent(content, cfg = {}) {
 
   const tags = { errors: [], warnings: [] };
 
-  let match;
-  const trackerPatterns = (config.trackerPatterns || []).map((value) => value.toLowerCase());
   GATED_TAG_REGEX.lastIndex = 0;
+  let match;
   while ((match = GATED_TAG_REGEX.exec(content)) !== null) {
-    inspectTag(content, match, tags, {
-      trackerPatterns,
-      ...config
-    });
+    inspectTag(content, match, tags, config, loaderIndex);
   }
 
-  const allSrcTags = content.match(/<\w+\b[^>]*\bsrc\s*=\s*\"[^\"]+\"[^>]*>/gi) || [];
+  SRC_TAG_REGEX.lastIndex = 0;
+  while ((match = SRC_TAG_REGEX.exec(content)) !== null) {
+    const tag = match[0];
+    const src = (match[3] || '').toLowerCase();
 
-  for (const tag of allSrcTags) {
-    const isScriptOrIFrame = /^<(script|iframe)\b/i.test(tag);
-    if (!isScriptOrIFrame) {
-      continue;
-    }
-
-    const src = (SRC_REGEX.exec(tag) || [])[2];
     if (!src) {
       continue;
     }
+
     const hasCategory = DATA_CATEGORY_REGEX.test(tag);
     const hasExplicit = DATA_SRC_REGEX.test(tag);
+    const tracked = normalizedPatterns.some((pattern) => src.includes(pattern));
 
-    const tracker = trackerPatterns.some((pattern) => src.toLowerCase().includes(pattern));
-    if (tracker && !(hasCategory || hasExplicit)) {
+    if (tracked && !(hasCategory || hasExplicit)) {
       tags.errors.push(`ungated-tracker:${src}`);
-    }
-    if (src && (hasCategory || hasExplicit) && tag.indexOf('<script') === -1 && tag.indexOf('<iframe') === -1) {
-      continue;
     }
   }
 
   const uniq = (value) => Array.from(new Set(value));
-  const gateErrors = uniq(tags.errors);
-  const gateWarnings = uniq(tags.warnings);
-
-  for (const item of gateErrors) {
+  for (const item of uniq(tags.errors)) {
     errors.push(item);
   }
 
-  for (const item of gateWarnings) {
+  for (const item of uniq(tags.warnings)) {
     warnings.push(item);
   }
 
   const hasTrackerControls = MANAGE_REJECT_ACCEPT_REGEX.test(content);
   if (!hasTrackerControls) {
     warnings.push('missing-basic-controls');
-  }
-
-  if (loaderIndex < 0) {
-    errors.push('missing-loader-marker');
   }
 
   return {

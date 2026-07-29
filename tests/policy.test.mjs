@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeState, normalizeConfig, isGpcEnabled, allowCategory } from '../src/policy.js';
+import { validateConfig } from '../src/validate.js';
 
 const config = normalizeConfig();
 
@@ -62,4 +63,32 @@ test('allowCategory keeps essential always true', () => {
 test('isGpcEnabled reads navigator flag', () => {
   assert.equal(isGpcEnabled(makeEnv(true)), true);
   assert.equal(isGpcEnabled(makeEnv(false)), false);
+});
+
+test('validateConfig rejects duplicate consent categories', () => {
+  const base = normalizeConfig();
+  const result = validateConfig({
+    ...base,
+    categories: ['essential', 'statistics', 'statistics', 'marketing', 'preferences'],
+    defaultConsent: {
+      essential: true,
+      statistics: false,
+      marketing: false,
+      preferences: false
+    }
+  });
+
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(' '), /categories must be unique/);
+});
+
+test('validateConfig rejects non-string categories', () => {
+  const base = normalizeConfig();
+  const result = validateConfig({
+    ...base,
+    categories: ['essential', 'statistics', 3, 'marketing', 'preferences']
+  });
+
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(' '), /categories must contain only strings/);
 });

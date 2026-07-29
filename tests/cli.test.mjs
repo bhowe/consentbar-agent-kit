@@ -38,6 +38,16 @@ test('audit fails on missing policy and controls', () => {
   assert.match(result.stderr, /missing-policy-link/);
 });
 
+test('audit catches single-quoted ungated tracker URLs case-insensitively', () => {
+  const result = spawnSync(process.execPath, [cli, 'audit', resolve(process.cwd(), 'tests/fixtures/single-quoted-ungated-tracker.html')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /ungated-tracker/);
+});
+
 test('validate fails on malformed config', () => {
   const tmp = mkdtempSync(resolve(tmpdir(), 'consentbar-cli-'));
   const malformed = resolve(tmp, 'bad.config.json');
