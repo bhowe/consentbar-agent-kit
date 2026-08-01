@@ -71,8 +71,16 @@ Details include `detail.grants`, `detail.version`, and `detail.reason`.
 - Available `tools/call` tools:
   - `validate_config` for strict, schema-aware config checks
   - `audit_html` for read-only consent-gating audits
+  - `audit_html_variants` for parity checks between public and fresh/bypass HTML
   - `get_default_config` for the strict defaults
   - `get_standards` for implementation reminders (no write actions)
+
+`audit_html_variants` runs both variants through `audit_html` and then adds strict
+cross-variant checks for:
+
+- loader presence
+- control presence (`accept-all`, `reject-all`, `manage-button`)
+- gated tracker source presence and count differences
 
 The MCP surface is **read-only by design**. It validates, audits, and reads standards
 only. It does not store user state, write files, or call external APIs.
@@ -86,6 +94,13 @@ only. It does not store user state, write files, or call external APIs.
 - inline scripted content with `data-consent-category` that is not `type="text/plain"`,
 - presence of policy link,
 - presence of accept/reject/manage controls.
+
+Each MCP HTML call input is capped at 512 KiB.
+
+### MCP limitations
+
+- Regex-based HTML checks are intentionally dependency-free. They are fast and safe, but may miss odd/invalid markup.
+- `audit_html_variants` enforces structural parity on consent loader, controls, and gated tracker source counts.
 
 Non-zero exit code = failures.
 

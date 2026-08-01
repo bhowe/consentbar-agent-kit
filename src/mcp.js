@@ -1,6 +1,6 @@
 import { canonicalCategories, defaultConfigValues, normalizeConfig } from './policy.js';
 import { validateConfig } from './validate.js';
-import { auditHtmlContent } from './audit.js';
+import { auditHtmlContent, auditHtmlVariants } from './audit.js';
 
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MCP_PROTOCOL_VERSION = '2025-06-18';
@@ -54,6 +54,33 @@ export function defaultTools() {
             description: 'Optional config overrides.'
           }
         },
+        additionalProperties: false
+      }
+    },
+    {
+      name: 'audit_html_variants',
+      description:
+        'Compare consentbar checks across two HTML variants and report cross-variant mismatch findings.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          publicHtml: {
+            type: 'string',
+            maxLength: MAX_AUDIT_HTML_BYTES,
+            description: 'Public-facing HTML variant to compare.'
+          },
+          freshHtml: {
+            type: 'string',
+            maxLength: MAX_AUDIT_HTML_BYTES,
+            description: 'Fresh build HTML variant to compare.'
+          },
+          config: {
+            type: 'object',
+            additionalProperties: true,
+            description: 'Optional config overrides.'
+          }
+        },
+        required: ['publicHtml', 'freshHtml'],
         additionalProperties: false
       }
     },
@@ -193,6 +220,30 @@ export async function mcpHandle(message) {
 
       const cfg = argsObj.config ? normalizeConfig(argsObj.config) : undefined;
       const result = await auditHtmlContent(argsObj.html, cfg);
+      return asSuccess(id, {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2)
+          }
+        ],
+        cacheAge: 0
+      });
+    }
+
+    if (params.name === 'audit_html_variants') {
+      if (typeof argsObj.publicHtml !== 'string' || argsObj.publicHtml.length === 0) {
+        return asError(id, -32602, 'audit_html_variants requires a non-empty publicHtml string argument.');
+      }
+      if (typeof argsObj.freshHtml !== 'string' || argsObj.freshHtml.length === 0) {
+        return asError(id, -32602, 'audit_html_variants requires a non-empty freshHtml string argument.');
+      }
+      if (Buffer.byteLength(argsObj.publicHtml, 'utf8') > MAX_AUDIT_HTML_BYTES || Buffer.byteLength(argsObj.freshHtml, 'utf8') > MAX_AUDIT_HTML_BYTES) {
+        return asError(id, -32602, 'audit_html_variants html inputs must be 512 KiB or smaller each.');
+      }
+
+      const cfg = argsObj.config ? normalizeConfig(argsObj.config) : undefined;
+      const result = await auditHtmlVariants(argsObj.publicHtml, argsObj.freshHtml, cfg);
       return asSuccess(id, {
         content: [
           {

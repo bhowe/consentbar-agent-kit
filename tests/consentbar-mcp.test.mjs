@@ -93,6 +93,28 @@ function rpc(port, payload) {
   return request(port, 'POST', JSON.stringify(payload));
 }
 
+function buildManagedHtml({
+  includeLoader = true,
+  includeAcceptAll = true,
+  includeRejectAll = true,
+  includeManageButton = true,
+  trackerSources = [],
+  inlineScripts = []
+} = {}) {
+  const loaderTag = includeLoader
+    ? '<script src="/dist/consentbar.js" data-consentbar-loader></script>'
+    : '';
+  const acceptTag = includeAcceptAll ? '<button data-consent-accept-all></button>' : '';
+  const rejectTag = includeRejectAll ? '<button data-consent-reject-all></button>' : '';
+  const manageTag = includeManageButton ? '<button data-consent-manage-button></button>' : '';
+  const trackerTags = trackerSources
+    .map((source) => `<script data-consent-category="statistics" data-consent-src="${source}"></script>`)
+    .join('');
+  const inline = inlineScripts.join('');
+
+  return `<html><head>${loaderTag}</head><body><a href="/privacy" data-consent-policy-link>policy</a>${acceptTag}${rejectTag}${manageTag}${inline}${trackerTags}</body></html>`;
+}
+
 test('MCP initialize, tools/list, and tools/call are real and read-only', async () => {
   const { server, port } = await spawnServer();
 
@@ -118,6 +140,7 @@ test('MCP initialize, tools/list, and tools/call are real and read-only', async 
     const names = list.payload.result.tools.map((tool) => tool.name).sort();
     assert.ok(names.includes('validate_config'));
     assert.ok(names.includes('audit_html'));
+    assert.ok(names.includes('audit_html_variants'));
     assert.ok(names.includes('get_default_config'));
     assert.ok(names.includes('get_standards'));
 
@@ -158,16 +181,19 @@ test('MCP initialize, tools/list, and tools/call are real and read-only', async 
       params: {
         name: 'audit_html',
         arguments: {
-          html: '<html><body><script data-consent-category="statistics" data-consent-src="https://www.googletagmanager.com/gtag/js?id=G-1"></script></body></html>'
+          html:
+            '<html><body><script src="/dist/consentbar.js" data-consentbar-loader></script><a href="/privacy" data-consent-policy-link>policy</a><button data-consent-accept-all></button><button data-consent-reject-all></button><button data-consent-manage-button></button><script data-consent-category="statistics" data-consent-src="https://www.googletagmanager.com/gtag/js?id=G-1" type="text/plain"></script></body></html>'
         }
       }
     });
     assert.equal(audited.status, 200);
     assert.equal(audited.payload.result.content[0].type, 'text');
+    const auditedResult = JSON.parse(audited.payload.result.content[0].text);
+    assert.equal(auditedResult.success, true);
 
     const unknown = await rpc(port, {
       jsonrpc: '2.0',
-      id: 5,
+      id: 12,
       method: 'tools/call',
       params: {
         name: 'contact_request'
@@ -175,6 +201,173 @@ test('MCP initialize, tools/list, and tools/call are real and read-only', async 
     });
     assert.equal(unknown.status, 200);
     assert.equal(unknown.payload.error.code, -32601);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('audit_html enforces executable inline analytics consent handling', async () => {
+  const { server, port } = await spawnServer();
+
+  try {
+    const badExecutableAnalytics = await rpc(port, {
+      jsonrpc: '2.0',
+      id: 8,
+      method: 'tools/call',
+      params: {
+        name: 'audit_html',
+        arguments: {
+          html: buildManagedHtml({
+            inlineScripts: ['<script>window.dataLayer.push({ event: "page_view" });</script>']
+          })
+        }
+      }
+    });
+    assert.equal(badExecutableAnalytics.status, 200);
+    const badResult = JSON.parse(badExecutableAnalytics.payload.result.content[0].text);
+    assert.equal(badResult.success, false);
+    assert.ok(badResult.errors.includes('inline-analytics-call-not-consented'));
+
+    const badGatedWithoutTextPlain = await rpc(port, {
+      jsonrpc: '2.0',
+      id: 9,
+      method: 'tools/call',
+      params: {
+        name: 'audit_html',
+        arguments: {
+          html: buildManagedHtml({
+            inlineScripts: ["<script data-consent-category=\"statistics\">gtag('config', 'G-TEST');</script>"]
+          })
+        }
+      }
+    });
+    assert.equal(badGatedWithoutTextPlain.status, 200);
+    const badGatedResult = JSON.parse(badGatedWithoutTextPlain.payload.result.content[0].text);
+    assert.equal(badGatedResult.success, false);
+    assert.ok(badGatedResult.errors.includes('inline-gated-script-must-be-text/plain'));
+
+    const goodGatedTextPlain = await rpc(port, {
+      jsonrpc: '2.0',
+      id: 10,
+      method: 'tools/call',
+      params: {
+        name: 'audit_html',
+        arguments: {
+          html: buildManagedHtml({
+            inlineScripts: ["<script type=\"text/plain\" data-consent-category=\"statistics\">gtag('config', 'G-TEST');</script>"]
+          })
+        }
+      }
+    });
+    assert.equal(goodGatedTextPlain.status, 200);
+    const goodResult = JSON.parse(goodGatedTextPlain.payload.result.content[0].text);
+    assert.equal(goodResult.success, true);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('audit_html_variants compares variant structure and tracker parity', async () => {
+  const { server, port } = await spawnServer();
+  const trackerSource = 'https://www.googletagmanager.com/gtag/js?id=G-1';
+
+  try {
+    const variantBaseline = await rpc(port, {
+      jsonrpc: '2.0',
+      id: 11,
+      method: 'tools/call',
+      params: {
+        name: 'audit_html_variants',
+        arguments: {
+          publicHtml: buildManagedHtml({
+            trackerSources: [trackerSource, trackerSource]
+          }),
+          freshHtml: buildManagedHtml({
+            trackerSources: [trackerSource, trackerSource]
+          })
+        }
+      }
+    });
+    assert.equal(variantBaseline.status, 200);
+    const variantBaselineResult = JSON.parse(variantBaseline.payload.result.content[0].text);
+    assert.equal(variantBaselineResult.success, true);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('audit_html_variants flags loader mismatch and control mismatch', async () => {
+  const { server, port } = await spawnServer();
+  const trackerSource = 'https://www.googletagmanager.com/gtag/js?id=G-2';
+
+  try {
+    const loaderMismatch = await rpc(port, {
+      jsonrpc: '2.0',
+      id: 12,
+      method: 'tools/call',
+      params: {
+        name: 'audit_html_variants',
+        arguments: {
+          publicHtml: buildManagedHtml({ trackerSources: [trackerSource] }),
+          freshHtml: buildManagedHtml({ includeLoader: false, trackerSources: [trackerSource] })
+        }
+      }
+    });
+    assert.equal(loaderMismatch.status, 200);
+    const loaderMismatchResult = JSON.parse(loaderMismatch.payload.result.content[0].text);
+    assert.equal(loaderMismatchResult.success, false);
+    assert.ok(loaderMismatchResult.errors.some((value) => value.startsWith('loader-mismatch:public=present:fresh=absent')));
+
+    const controlMismatch = await rpc(port, {
+      jsonrpc: '2.0',
+      id: 13,
+      method: 'tools/call',
+      params: {
+        name: 'audit_html_variants',
+        arguments: {
+          publicHtml: buildManagedHtml({ trackerSources: [trackerSource] }),
+          freshHtml: buildManagedHtml({ includeManageButton: false, trackerSources: [trackerSource] })
+        }
+      }
+    });
+    assert.equal(controlMismatch.status, 200);
+    const controlMismatchResult = JSON.parse(controlMismatch.payload.result.content[0].text);
+    assert.equal(controlMismatchResult.success, false);
+    assert.ok(controlMismatchResult.errors.some((value) => value.startsWith('manage-button-control-mismatch:public=present:fresh=absent')));
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('audit_html_variants flags gated tracker source and count mismatch', async () => {
+  const { server, port } = await spawnServer();
+  const trackerSource = 'https://www.googletagmanager.com/gtag/js?id=G-3';
+
+  try {
+    const mismatch = await rpc(port, {
+      jsonrpc: '2.0',
+      id: 14,
+      method: 'tools/call',
+      params: {
+        name: 'audit_html_variants',
+        arguments: {
+          publicHtml: buildManagedHtml({
+            trackerSources: [trackerSource, trackerSource, 'https://www.google-analytics.com/analytics.js']
+          }),
+          freshHtml: buildManagedHtml({
+            trackerSources: [trackerSource, 'https://www.google-analytics.com/analytics.js']
+          })
+        }
+      }
+    });
+    assert.equal(mismatch.status, 200);
+    const mismatchResult = JSON.parse(mismatch.payload.result.content[0].text);
+    assert.equal(mismatchResult.success, false);
+    assert.ok(
+      mismatchResult.errors.some((value) =>
+        value.startsWith('tracker-count-mismatch:https://www.googletagmanager.com/gtag/js?id=g-3:2:1')
+      )
+    );
   } finally {
     await stopServer(server);
   }
@@ -247,6 +440,21 @@ test('MCP rejects oversized requests and audit payloads', async () => {
     });
     assert.equal(oversizedAudit.status, 200);
     assert.equal(oversizedAudit.payload.error.code, -32602);
+
+    const oversizedVariant = await rpc(port, {
+      jsonrpc: '2.0',
+      id: 8,
+      method: 'tools/call',
+      params: {
+        name: 'audit_html_variants',
+        arguments: {
+          publicHtml: 'x'.repeat((512 * 1024) + 1),
+          freshHtml: buildManagedHtml()
+        }
+      }
+    });
+    assert.equal(oversizedVariant.status, 200);
+    assert.equal(oversizedVariant.payload.error.code, -32602);
   } finally {
     await stopServer(server);
   }

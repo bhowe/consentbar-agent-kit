@@ -26,7 +26,8 @@
     "facebook.net",
     "facebook.com/tr",
     "adservice.google.com",
-    "analytics.js"
+    "analytics.js",
+    "wp-content/uploads/breeze/google/gtag.js"
   ],
   "ui": {
     "manageButtonLabel": "Manage preferences",

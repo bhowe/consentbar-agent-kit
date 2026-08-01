@@ -30,7 +30,8 @@ function defaultConfigValues() {
       'facebook.com/tr',
       'adservice.google.com',
       'analytics.js',
-      'stats.g.doubleclick.net'
+      'stats.g.doubleclick.net',
+      'wp-content/uploads/breeze/google/gtag.js'
     ],
     ui: {
       manageButtonLabel: 'Manage preferences',
