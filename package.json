@@ -13,10 +13,12 @@
     "build": "node ./scripts/build-dist.js",
     "validate": "node ./bin/consentbar.js validate",
     "audit": "node ./bin/consentbar.js audit examples/basic/index.html",
-    "lint:cli": "node ./bin/consentbar.js validate consentbar.config.json"
+    "lint:cli": "node ./bin/consentbar.js validate consentbar.config.json",
+    "mcp": "node ./bin/consentbar-mcp.js"
   },
   "bin": {
-    "consentbar": "./bin/consentbar.js"
+    "consentbar": "./bin/consentbar.js",
+    "consentbar-mcp": "./bin/consentbar-mcp.js"
   },
   "files": [
     "dist/consentbar.js",

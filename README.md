@@ -57,6 +57,26 @@ Load `dist/consentbar.js` and initialize with:
 
 Details include `detail.grants`, `detail.version`, and `detail.reason`.
 
+## MCP endpoint (AI agent integration)
+
+`consentbar-agent-kit` includes a local MCP server for AI clients.
+
+- Start with `npm run mcp` (defaults to `127.0.0.1:8787`).
+- Pass `--host` and `--port` to override.
+- Send JSON-RPC 2.0 requests to `POST /mcp`.
+- Implemented methods:
+  - `initialize`
+  - `tools/list`
+  - `tools/call`
+- Available `tools/call` tools:
+  - `validate_config` for strict, schema-aware config checks
+  - `audit_html` for read-only consent-gating audits
+  - `get_default_config` for the strict defaults
+  - `get_standards` for implementation reminders (no write actions)
+
+The MCP surface is **read-only by design**. It validates, audits, and reads standards
+only. It does not store user state, write files, or call external APIs.
+
 ## Audit CLI
 
 `audit <html-or-dir>` checks:
