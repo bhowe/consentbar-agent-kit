@@ -52,6 +52,11 @@ export function defaultTools() {
             type: 'object',
             additionalProperties: true,
             description: 'Optional config overrides.'
+          },
+          platform: {
+            type: 'string',
+            enum: ['wordpress', 'non-wordpress'],
+            description: 'Optional platform hint. WordPress recommends CookieYes instead of ConsentBar runtime.'
           }
         },
         additionalProperties: false
@@ -78,6 +83,11 @@ export function defaultTools() {
             type: 'object',
             additionalProperties: true,
             description: 'Optional config overrides.'
+          },
+          platform: {
+            type: 'string',
+            enum: ['wordpress', 'non-wordpress'],
+            description: 'Optional platform hint. WordPress recommends CookieYes instead of ConsentBar runtime.'
           }
         },
         required: ['publicHtml', 'freshHtml'],
@@ -89,7 +99,13 @@ export function defaultTools() {
       description: 'Return safe default config values, strict opt-in defaults, and tracker patterns.',
       inputSchema: {
         type: 'object',
-        properties: {},
+        properties: {
+          platform: {
+            type: 'string',
+            enum: ['wordpress', 'non-wordpress'],
+            description: 'Optional platform hint for runtime recommendation.'
+          }
+        },
         additionalProperties: false
       }
     },
@@ -219,7 +235,7 @@ export async function mcpHandle(message) {
       }
 
       const cfg = argsObj.config ? normalizeConfig(argsObj.config) : undefined;
-      const result = await auditHtmlContent(argsObj.html, cfg);
+      const result = await auditHtmlContent(argsObj.html, cfg, argsObj.platform);
       return asSuccess(id, {
         content: [
           {
@@ -243,7 +259,7 @@ export async function mcpHandle(message) {
       }
 
       const cfg = argsObj.config ? normalizeConfig(argsObj.config) : undefined;
-      const result = await auditHtmlVariants(argsObj.publicHtml, argsObj.freshHtml, cfg);
+      const result = await auditHtmlVariants(argsObj.publicHtml, argsObj.freshHtml, cfg, argsObj.platform);
       return asSuccess(id, {
         content: [
           {
@@ -273,6 +289,7 @@ export async function mcpHandle(message) {
     }
 
     if (params.name === 'get_standards') {
+      const platform = argsObj.platform === 'wordpress' ? 'wordpress' : 'non-wordpress';
       return asSuccess(id, {
         content: [
           {
@@ -283,7 +300,11 @@ export async function mcpHandle(message) {
                 default: 'essential=true, statistics=false, marketing=false, preferences=false',
                 required_attributes: ['data-consent-category', 'data-consent-src'],
                 inline_guard: 'type="text/plain"',
-                gpc: 'forces non-essential false when navigator.globalPrivacyControl === true'
+                gpc: 'forces non-essential false when navigator.globalPrivacyControl === true',
+                platform,
+                runtime_recommendation: platform === 'wordpress'
+                  ? 'Use the official CookieYes WordPress plugin; do not deploy ConsentBar runtime. Standards still require independent blocking/controls proof.'
+                  : 'ConsentBar runtime is suitable for non-WordPress when all strict gating checks pass.'
               },
               null,
               2

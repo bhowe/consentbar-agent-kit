@@ -42,6 +42,14 @@ function isTrackedUrl(value, trackerPatterns) {
   return trackerPatterns.some((pattern) => value.includes(pattern));
 }
 
+export function detectPlatform(content, explicitPlatform = '') {
+  const explicit = String(explicitPlatform || '').trim().toLowerCase();
+  if (explicit === 'wordpress' || explicit === 'non-wordpress') return explicit;
+  if (/<meta[^>]+(?:name=["']generator["'][^>]+content=["'][^"']*wordpress|content=["'][^"']*wordpress[^"']*["'][^>]+name=["']generator["'])/i.test(content)
+      || /(?:wp-content|wp-includes)\//i.test(content)) return 'wordpress';
+  return 'non-wordpress';
+}
+
 function extractTrackerSources(content, trackerPatterns, includeGatedOnly = false) {
   const tagRegex = /<(script|iframe)\b[^>]*>/gi;
   const sources = [];
@@ -183,13 +191,17 @@ function inspectSrcTag(match, tags, trackerPatterns) {
   }
 }
 
-export async function auditHtmlContent(content, cfg = {}) {
+export async function auditHtmlContent(content, cfg = {}, platform = '') {
   const config = normalizeConfig(cfg);
   const normalizedPatterns = (config.trackerPatterns || DEFAULT_TRACKER_PATTERNS).map((pattern) => String(pattern).toLowerCase());
   config.trackerPatterns = normalizedPatterns;
 
   const errors = [];
   const warnings = [];
+  const detectedPlatform = detectPlatform(content, platform);
+  const recommendation = detectedPlatform === 'wordpress'
+    ? 'wordpress-cookieyes: use the official CookieYes WordPress plugin as the runtime; do not deploy ConsentBar runtime. Audit results do not prove CookieYes is configured.'
+    : 'consentbar-runtime: non-WordPress may use ConsentBar with strict opt-in controls.';
 
   if (!content.includes('data-consent-policy-link')) {
     if (!content.includes(`href="${config.policyUrl}"`) && !content.includes(`href='${config.policyUrl}'`)) {
@@ -263,17 +275,19 @@ export async function auditHtmlContent(content, cfg = {}) {
   return {
     success: errors.length === 0,
     errors,
-    warnings
+    warnings,
+    platform: detectedPlatform,
+    recommendation
   };
 }
 
-export async function auditHtmlVariants(publicHtml, freshHtml, cfg = {}) {
+export async function auditHtmlVariants(publicHtml, freshHtml, cfg = {}, platform = '') {
   const config = normalizeConfig(cfg);
   const normalizedPatterns = (config.trackerPatterns || DEFAULT_TRACKER_PATTERNS).map((pattern) => String(pattern).toLowerCase());
   config.trackerPatterns = normalizedPatterns;
 
-  const publicResult = await auditHtmlContent(publicHtml, config);
-  const freshResult = await auditHtmlContent(freshHtml, config);
+  const publicResult = await auditHtmlContent(publicHtml, config, platform);
+  const freshResult = await auditHtmlContent(freshHtml, config, platform);
 
   const publicSummary = summarizeHtmlVariant(publicHtml, normalizedPatterns);
   const freshSummary = summarizeHtmlVariant(freshHtml, normalizedPatterns);
@@ -354,7 +368,11 @@ export async function auditHtmlVariants(publicHtml, freshHtml, cfg = {}) {
   return {
     success: uniqErrors.length === 0,
     errors: uniqErrors,
-    warnings: uniqWarnings
+    warnings: uniqWarnings,
+    platform: publicResult.platform === freshResult.platform ? publicResult.platform : 'mixed',
+    recommendation: publicResult.recommendation === freshResult.recommendation
+      ? publicResult.recommendation
+      : 'platform-mismatch: inspect both variants before selecting a runtime.'
   };
 }
 

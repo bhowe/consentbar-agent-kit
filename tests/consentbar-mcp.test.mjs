@@ -206,6 +206,43 @@ test('MCP initialize, tools/list, and tools/call are real and read-only', async 
   }
 });
 
+test('WordPress audits recommend CookieYes without claiming it is configured', async () => {
+  const { server, port } = await spawnServer();
+  try {
+    const response = await rpc(port, {
+      jsonrpc: '2.0', id: 40, method: 'tools/call',
+      params: { name: 'audit_html', arguments: {
+        html: '<html><head><meta name="generator" content="WordPress 6.6"><script src="/dist/consentbar.js" data-consentbar-loader></script></head><body><a href="/privacy" data-consent-policy-link>policy</a><button data-consent-accept-all></button><button data-consent-reject-all></button><button data-consent-manage-button></button></body></html>'
+      } }
+    });
+    const result = JSON.parse(response.payload.result.content[0].text);
+    assert.equal(result.platform, 'wordpress');
+    assert.match(result.recommendation, /CookieYes/);
+    assert.match(result.recommendation, /do not deploy ConsentBar/);
+    assert.match(result.recommendation, /do not prove|do not.*configured|configured/i);
+
+    const hinted = await rpc(port, {
+      jsonrpc: '2.0', id: 41, method: 'tools/call',
+      params: { name: 'audit_html', arguments: {
+        platform: 'wordpress', html: '<html><body><a href="/privacy" data-consent-policy-link>policy</a><button data-consent-accept-all></button><button data-consent-reject-all></button><button data-consent-manage-button></button><script src="/dist/consentbar.js" data-consentbar-loader></script></body></html>'
+      } }
+    });
+    const hintedResult = JSON.parse(hinted.payload.result.content[0].text);
+    assert.equal(hintedResult.platform, 'wordpress');
+
+    const standards = await rpc(port, {
+      jsonrpc: '2.0', id: 42, method: 'tools/call',
+      params: { name: 'get_standards', arguments: { platform: 'wordpress' } }
+    });
+    const standardsResult = JSON.parse(standards.payload.result.content[0].text);
+    assert.equal(standardsResult.platform, 'wordpress');
+    assert.match(standardsResult.runtime_recommendation, /CookieYes/);
+    assert.match(standardsResult.runtime_recommendation, /independent/);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test('audit_html enforces executable inline analytics consent handling', async () => {
   const { server, port } = await spawnServer();
 

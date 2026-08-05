@@ -82,6 +82,13 @@ cross-variant checks for:
 - control presence (`accept-all`, `reject-all`, `manage-button`)
 - gated tracker source presence and count differences
 
+For WordPress HTML (detected from `wp-content`, `wp-includes`, or a WordPress
+generator tag), audits return a clear recommendation to use the official
+CookieYes WordPress plugin as the runtime instead of deploying ConsentBar.
+Pass `platform: "wordpress"` when the HTML is incomplete. This is only a
+platform recommendation: an audit never claims CookieYes is configured merely
+because a plugin or loader marker appears.
+
 The MCP surface is **read-only by design**. It validates, audits, and reads standards
 only. It does not store user state, write files, or call external APIs.
 
